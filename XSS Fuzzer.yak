@@ -1,0 +1,82 @@
+wg = sync.NewWaitGroup()
+defer wg.Wait()
+
+// 加载payload
+loadXsspayload = func(){
+    xssPayloads = make([]string)
+    f, err := file.Open("xsspayloads.txt")
+    die(err)
+    for row in f.ReadLines(){
+        xssPayloads.Extend(payloadChange(row.Trim("")))
+    }
+    f.Close()
+    return xssPayloads
+}
+
+// payload 逐个变异成大写
+payloadChange = func(payload){
+    changedPayloads = make([]string)
+    changedPayloads.Append(payload)
+    var tempStr
+    for i=0;i<len(payload);i++ {
+        if chr(payload[i]).IsLower(){
+            if i == len(payload) -1 {
+                tempStr = payload[0:i] + payload[i:len(payload)].Upper()
+            }else{
+                tempStr = payload[0:i] + payload[i:i+1].Upper() + payload[i+1:len(payload)]
+            }
+            changedPayloads.Append(tempStr)
+        }
+    } 
+    return changedPayloads
+}
+
+submitTask = func(fReq,xssPayloads){
+    wg.Add(1)
+    go func{
+        defer wg.Done()
+        for param in fReq.GetGetQueryParams() {
+            for payload in xssPayloads{
+                reqs, err := fReq.FuzzGetParams(param.Name(), payload).Exec()
+                if err != nil {
+                    log.error("XSS FUZZ ERROR: %s", err)
+                    return
+                }
+                xss := false
+                for result := range reqs {
+                    if string(result.ResponseRaw).Contains(payload) {
+                        log.warn("--------------------xss found--------------------------")
+                        url , _ = codec.DecodeUrl(fReq.GetUrl())
+                        log.warn(url)
+                        log.warn(str.f("Param: %v=%v",  param.Name(), param.Value()[0]))
+                        log.warn(str.f("payload: %v",  payload))
+                        xss = true
+                        break
+                    }
+                }
+                if xss {
+                    break
+                }
+            }
+        }
+    }
+}
+
+payloads = loadXsspayload()
+
+err = mitm.Start(8082, mitm.callback(func(isHttps, url, req, rsp) {
+    if req.Method == "CONNECT" {
+        return
+    }
+    fuzzedUrl = make([]string)
+    if fuzzedUrl.Count(url) == 0{
+        fuzzedUrl.Append(url)
+        fReq, err := fuzz.HTTPRequest(req, fuzz.https(isHttps))
+        if err != nil {
+            log.error("build fuzz http request failed: %s", err)
+            return
+        }
+        submitTask(fReq,payloads)
+    }
+}), mitm.useDefaultCA(true))
+die(err)

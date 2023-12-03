@@ -1,0 +1,4 @@
+<img src="javascript:alert(1);">
+<img src=javascript:alert(1)>
+<iframe src="javascript:alert(1);"><iframe>
+<script>alert(1)</script>
